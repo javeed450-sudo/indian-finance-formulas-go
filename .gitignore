@@ -1,0 +1,4 @@
+# Go build artefacts
+*.exe
+*.test
+*.out
