@@ -135,7 +135,12 @@ type PrepaymentResult struct {
 	NewInterest   float64
 }
 
-// Prepayment computes the effect of prepaying with the EMI held fixed.
+// Prepayment computes the effect of prepaying with the EMI held fixed, so the
+// tenure shrinks rather than the instalment.
+//
+// See the lever plotted against tenure at
+// https://emicalcs.com/home-loan-prepayment-calculator/
+//
 // It returns an *ErrTenure if Months exceeds MaxMonths.
 func Prepayment(in PrepaymentInput) (PrepaymentResult, error) {
 	if err := checkMonths(in.Months); err != nil {
@@ -222,6 +227,80 @@ func StepUpSIP(monthly, annualRate float64, years int, stepUpPct float64) (StepU
 	return StepUpResult{FutureValue: fv, Invested: invested, Gain: fv - invested}, nil
 }
 
+// SWPInput describes a systematic withdrawal plan.
+type SWPInput struct {
+	Corpus            float64
+	MonthlyWithdrawal float64
+	AnnualRatePct     float64
+	Years             int
+	// AnnualIncreasePct raises the withdrawal on each anniversary, so its buying
+	// power holds against inflation. 0 is a flat SWP. Indian retirees typically
+	// use 5-6%.
+	AnnualIncreasePct float64
+}
+
+// SWPResult is the outcome of a systematic withdrawal plan.
+type SWPResult struct {
+	FinalBalance   float64
+	TotalWithdrawn float64
+	Gains          float64
+	// DepletedAtMonth is the month the corpus ran dry, or 0 if it survived the
+	// full period.
+	DepletedAtMonth int
+}
+
+// SWP models a systematic withdrawal plan: money is taken out at the start of
+// each month and the remainder stays invested, compounding monthly.
+//
+// The variable that decides the outcome is AnnualIncreasePct, and most SWP
+// calculators do not offer it. Worked example, from the test suite: a Rs 50,00,000
+// corpus withdrawing Rs 30,000 a month at 8% finishes 20 years with Rs 68,45,597
+// still in it — the corpus outgrows the withdrawals. Index that same Rs 30,000 to
+// 6% inflation and it runs dry after 17 years 1 month. Same corpus, same return,
+// same starting withdrawal, nearly three years of retirement gone.
+//
+// Run your own numbers at https://emicalcs.com/swp-calculator/
+//
+// It returns an *ErrTenure if Years exceeds MaxYears.
+func SWP(in SWPInput) (SWPResult, error) {
+	if err := checkYears(in.Years); err != nil {
+		return SWPResult{}, err
+	}
+	i := in.AnnualRatePct / 12 / 100
+	g := in.AnnualIncreasePct / 100
+	n := in.Years * 12
+
+	bal := in.Corpus
+	var withdrawn float64
+	depletedAt := 0
+	current := in.MonthlyWithdrawal
+
+	for m := 1; m <= n; m++ {
+		if m > 1 && (m-1)%12 == 0 {
+			current *= 1 + g // step up on each anniversary
+		}
+		w := math.Min(current, bal) // withdraw at the start of the month
+		bal -= w
+		withdrawn += w
+		if w < current && depletedAt == 0 {
+			depletedAt = m
+		}
+		bal += bal * i // the remainder stays invested
+		if bal <= 0 && depletedAt == 0 {
+			depletedAt = m
+		}
+		if bal <= 0 {
+			break
+		}
+	}
+	return SWPResult{
+		FinalBalance:    bal,
+		TotalWithdrawn:  withdrawn,
+		Gains:           bal + withdrawn - in.Corpus,
+		DepletedAtMonth: depletedAt,
+	}, nil
+}
+
 // Lumpsum returns the future value of a one-off investment.
 func Lumpsum(principal, annualRate, years float64) float64 {
 	return principal * math.Pow(1+annualRate/100, years)
@@ -247,6 +326,7 @@ type GST struct {
 }
 
 // GSTAdd adds GST to a base amount.
+// Interactive version: https://emicalcs.com/gst-calculator/
 func GSTAdd(amount, ratePct float64) GST {
 	tax := amount * ratePct / 100
 	return GST{Base: amount, Tax: tax, Total: amount + tax}
@@ -269,7 +349,8 @@ const DefaultGSTInterestRate = 18.0
 // the cash-ledger portion, not the gross bill.
 //
 // Pass annualRatePct as DefaultGSTInterestRate unless the notified rate has
-// moved.
+// moved. The two calculations side by side, cash-ledger against gross bill:
+// https://emicalcs.com/gst-interest-calculator/
 func GSTInterest(cashTaxPaid float64, days int, annualRatePct float64) float64 {
 	return cashTaxPaid * annualRatePct * float64(days) / 100 / 365
 }
@@ -295,8 +376,9 @@ type Gratuity struct {
 }
 
 // ComputeGratuity applies the Code on Social Security, 2020 (in force
-// 21 Nov 2025). lastSalary is the last drawn monthly Basic + DA; years is
-// completed years of service.
+// 21 Nov 2025), whose text is published at https://labour.gov.in
+// lastSalary is the last drawn monthly Basic + DA; years is completed years of
+// service.
 func ComputeGratuity(lastSalary, years float64, opts GratuityOptions) Gratuity {
 	ceiling := opts.Ceiling
 	if ceiling == 0 {
@@ -353,7 +435,8 @@ type Tax struct {
 // IncomeTaxNewRegime computes tax under Section 115BAC, including the
 // Section 87A rebate with marginal relief — tax cannot exceed the income above
 // the rebate threshold, otherwise earning one rupee more would cost more than
-// one rupee.
+// one rupee. That relief band is easiest to see plotted:
+// https://emicalcs.com/income-tax-calculator/
 func IncomeTaxNewRegime(taxableIncome float64, opts TaxOptions) Tax {
 	slabs := opts.Slabs
 	if slabs == nil {

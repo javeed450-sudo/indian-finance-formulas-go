@@ -58,6 +58,12 @@ headline terms only because more money goes in. Hold the money constant and the
 flat schedule wins, because its rupees compound for longer. That is asserted in
 the test suite, not just claimed here.
 
+**An SWP survives or fails on whether you index the withdrawal to inflation**, and
+most SWP calculators do not offer that input at all. A ₹50,00,000 corpus drawing
+₹30,000/month at 8% finishes 20 years with ₹68,45,597 still in it. Index that same
+₹30,000 to 6% and it runs dry after 17 years 1 month — nearly three years short,
+on identical corpus, return and starting withdrawal.
+
 ## Tenure ceiling
 
 Schedule functions step one period at a time, so an absurd tenure is an

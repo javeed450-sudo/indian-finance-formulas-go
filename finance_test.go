@@ -145,6 +145,42 @@ func TestFlatSIPBeatsStepUpOnEqualOutlay(t *testing.T) {
 	}
 }
 
+// The three SWP cases below use the same inputs as the site's own test vector
+// for build/calculators/swp-calculator.js, so the library and the calculator
+// cannot drift apart silently.
+
+func TestSWPFlatSurvivesTwentyYears(t *testing.T) {
+	r, err := SWP(SWPInput{Corpus: 5000000, MonthlyWithdrawal: 30000, AnnualRatePct: 8, Years: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	near(t, r.FinalBalance, 6845597, 1)
+	near(t, r.TotalWithdrawn, 7200000, 1)
+	if r.DepletedAtMonth != 0 {
+		t.Fatalf("flat plan should not deplete, got month %d", r.DepletedAtMonth)
+	}
+}
+
+func TestSWPIndexedToInflationRunsDry(t *testing.T) {
+	// Same corpus, same return, same STARTING withdrawal — indexed 6% a year.
+	// It empties at month 205, i.e. 17 years 1 month, nearly three years short
+	// of the 20-year plan the flat version completes with Rs 68.4L to spare.
+	r, err := SWP(SWPInput{Corpus: 5000000, MonthlyWithdrawal: 30000, AnnualRatePct: 8, Years: 20, AnnualIncreasePct: 6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	near(t, r.FinalBalance, 0, 0.01)
+	near(t, r.TotalWithdrawn, 10163607, 1)
+	if r.DepletedAtMonth != 205 {
+		t.Fatalf("want depletion at month 205 (17y 1m), got %d", r.DepletedAtMonth)
+	}
+}
+
+func TestSWPRejectsAbsurdPeriod(t *testing.T) {
+	_, err := SWP(SWPInput{Corpus: 5000000, MonthlyWithdrawal: 30000, AnnualRatePct: 8, Years: 1e9})
+	mustTenureErr(t, err)
+}
+
 func TestCAGR(t *testing.T) {
 	near(t, CAGR(100000, 250000, 5), 20.11, 0.01)
 }
